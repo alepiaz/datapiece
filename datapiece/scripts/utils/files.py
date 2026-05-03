@@ -58,9 +58,9 @@ def is_writeable_existing_file(file_path: str) -> bool:
     return is_path_existent(file_path) and is_path_writeable(file_path)
 
 
-def is_writeable_file_directory(file_path: str) -> bool:
+def is_existing_file_in_writeable_directory(file_path: str) -> bool:
     """
-    Checks if a file exists and its directory is writable.
+    Checks if a file exists and its containing directory is writable.
     """
     dir_path = os.path.dirname(os.path.abspath(file_path))
     return is_path_existent(file_path) and is_path_writeable(dir_path)

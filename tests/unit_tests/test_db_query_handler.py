@@ -59,7 +59,7 @@ class TestDBQueryHandler(unittest.TestCase):
         self.handler._handle_database_deletion()
         mock_remove.assert_called_once_with(self.db_name)
 
-    @patch("datapiece.scripts.db_query_handler.is_writeable_file_directory")
+    @patch("datapiece.scripts.db_query_handler.is_existing_file_in_writeable_directory")
     def test_connect_to_database(self, mock_exists) -> None:
         """
         Test the _create_database method for failing and passing testcase.
@@ -138,8 +138,9 @@ class TestDBQueryHandler(unittest.TestCase):
         Test the execute_query method.
         """
         query = "SELECT * FROM DummyTable"
-        self.handler.execute_query(query)
-        self.mock_cursor.execute.assert_called_once_with(query)
+        result = self.handler.execute_query(query)
+        self.assertTrue(result)
+        self.mock_cursor.execute.assert_called_once_with(query, ())
         self.mock_conn.commit.assert_called_once()
 
     def test_close(self) -> None:

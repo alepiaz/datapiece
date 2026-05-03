@@ -3,7 +3,7 @@ Unit tests for the Commands class.
 """
 
 import unittest
-from unittest.mock import Mock, create_autospec
+from unittest.mock import create_autospec
 
 from datapiece.scripts.commands import Commands
 from datapiece.scripts.db_query_handler import DBQueryHandler
@@ -19,8 +19,7 @@ class TestCommands(unittest.TestCase):
         Set up the test case.
         """
         self.handler = create_autospec(DBQueryHandler)
-        self.handler.conn = Mock()
-        self.config = {"exclude_list": ["__init__"]}
+        self.config = {}
         self.commands = Commands(self.handler, self.config)
 
     def test_get_command_names(self):
@@ -44,11 +43,12 @@ class TestCommands(unittest.TestCase):
         Test the start_volume method.
         """
         volume_number = 1
+        self.handler.execute_query.return_value = True
         self.commands.start_volume(volume_number)
         self.handler.execute_query.assert_called_once_with(
-            f"INSERT INTO `Volumes` (`VolumeNumber`) VALUES ({volume_number})"
+            "INSERT INTO `Volumes` (`VolumeNumber`) VALUES (?)",
+            params=(volume_number,)
         )
-        self.handler.conn.commit.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -52,6 +52,8 @@ class Console:
                 if command.lower().strip() == "exit":
                     break
                 command_parts = command.split()
+                if not command_parts:
+                    continue
                 command_name = command_parts[0]
                 if command_name in self.commands:
                     getattr(self.commands_instance, command_name)(*command_parts[1:])
@@ -66,7 +68,7 @@ class Console:
                 # Handle Ctrl+D / EOF
                 break
 
-        self.handler.conn.close()
+        self.handler.close()
 
     def completer(self, text: str, state: int) -> Optional[str]:
         """

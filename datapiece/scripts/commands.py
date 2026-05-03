@@ -6,10 +6,9 @@ TODO:
     * Store temporary informations in a file
 """
 
-from typing import Any
+from typing import Any, Callable
 
 from datapiece.scripts.db_query_handler import DBQueryHandler
-from datapiece.scripts.utils.config import get_key_list
 
 
 class Commands:
@@ -26,26 +25,33 @@ class Commands:
 
         Args:
             handler (DBQueryHandler): An instance of DBQueryHandler to execute the queries.
-            config (dict): A dictionary containing config information for commands
+            config (dict): A dictionary containing config information for commands.
         """
         self.handler = handler
         self.config = config
-        self.exclude_list = get_key_list(config, "exclude_list")
+        self._registry: dict[str, Callable] = {}
+        self._register_commands()
+
+    def _register_commands(self) -> None:
+        """
+        Registers all available user-facing commands into the internal registry.
+        """
+        self._registry["start_volume"] = self.start_volume
 
     def get_command_names(self) -> list[str]:
         """
-        Get a list of command names that are not exlcuded (i.e. __init__).
+        Get a list of registered command names.
 
         Returns:
-            list[str]: A list of commands
+            list[str]: A list of commands.
         """
-        return [func for func in dir(self) if self._is_valid_command(func)]
+        return list(self._registry.keys())
 
     def _is_valid_command(self, func: str) -> bool:
         """
-        Check if the method with the given name is callable and not excluded.
+        Check if the given name corresponds to a registered command.
         """
-        return callable(getattr(self, func)) and func not in self.exclude_list
+        return func in self._registry
 
     def start_volume(self, volume_number: int) -> None:
         """
@@ -54,6 +60,9 @@ class Commands:
         Args:
             volume_number (int): The number of the volume to be started.
         """
-        query = f"INSERT INTO `Volumes` (`VolumeNumber`) VALUES ({volume_number})"
-        self.handler.execute_query(query)
-        self.handler.conn.commit()
+        query = "INSERT INTO `Volumes` (`VolumeNumber`) VALUES (?)"
+        success = self.handler.execute_query(query, params=(volume_number,))
+        if success:
+            print(f"Volume {volume_number} added successfully.")
+        else:
+            print(f"Failed to add volume {volume_number}. It may already exist.")

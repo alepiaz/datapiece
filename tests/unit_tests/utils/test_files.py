@@ -10,7 +10,7 @@ from datapiece.scripts.utils.files import (is_path_existent, is_path_readable,
                                            is_path_writeable,
                                            is_readable_existing_file,
                                            is_writeable_existing_file,
-                                           is_writeable_file_directory)
+                                           is_existing_file_in_writeable_directory)
 
 
 class TestFiles(unittest.TestCase):
@@ -69,17 +69,17 @@ class TestFiles(unittest.TestCase):
     @patch("os.path.abspath")
     @patch("datapiece.scripts.utils.files.is_path_existent")
     @patch("datapiece.scripts.utils.files.is_path_writeable")
-    def test_is_writeable_file_directory(
+    def test_is_existing_file_in_writeable_directory(
         self, mock_writeable, mock_existent, mock_abspath, mock_dirname
     ) -> None:
         """
-        Test is_writeable_file_directory method.
+        Test is_existing_file_in_writeable_directory method.
         """
         mock_existent.return_value = True
         mock_writeable.return_value = True
         mock_abspath.return_value = "dummy_path"
         mock_dirname.return_value = "dummy_dir"
-        self.assertTrue(is_writeable_file_directory("dummy_path"))
+        self.assertTrue(is_existing_file_in_writeable_directory("dummy_path"))
 
 
 if __name__ == "__main__":

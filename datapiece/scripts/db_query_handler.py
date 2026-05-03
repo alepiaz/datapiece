@@ -8,7 +8,7 @@ import sqlite3
 
 from datapiece.scripts.utils.config import get_key_str
 from datapiece.scripts.utils.files import (is_readable_existing_file,
-                                           is_writeable_file_directory)
+                                           is_existing_file_in_writeable_directory)
 
 
 class DBQueryHandler:
@@ -37,6 +37,8 @@ class DBQueryHandler:
         self.test_mode = get_key_str(config, "mode") == "test"
         self.delete_db = delete_db
         self._handle_database_deletion()
+        db_dir = os.path.dirname(os.path.abspath(self.db_path))
+        os.makedirs(db_dir, exist_ok=True)
         self.conn = sqlite3.connect(self.db_path)
         self.cursor = self.conn.cursor()
         self._connect_to_database()
@@ -61,7 +63,7 @@ class DBQueryHandler:
         """
         Connects to the SQLite database.
         """
-        if is_writeable_file_directory(self.db_path):
+        if is_existing_file_in_writeable_directory(self.db_path):
             self._create_database()
 
     def _create_database(self) -> None:
@@ -81,7 +83,7 @@ class DBQueryHandler:
         """
         try:
             with open(self.schema_file, "r", encoding="utf-8") as f:
-                return f.read().split(";")
+                return [cmd.strip() for cmd in f.read().split(";") if cmd.strip()]
         except FileNotFoundError:
             logging.error("Schema file %s does not exist.", self.schema_file)
             return []
@@ -97,19 +99,29 @@ class DBQueryHandler:
             self.execute_query(command, commit=False)
         self.conn.commit()
 
-    def execute_query(self, query: str, commit=True) -> None:
+    def execute_query(self, query: str, params: tuple = (), commit: bool = True) -> bool:
         """
         Executes the given SQL query and commits the changes.
 
         Parameters:
             query (str): SQL query.
+            params (tuple): Query parameters for parameterized queries.
+            commit (bool): Whether to commit after execution.
+
+        Returns:
+            bool: True if the query succeeded, False otherwise.
         """
-        self.cursor.execute(query)
-        if commit:
-            self.conn.commit()
+        try:
+            self.cursor.execute(query, params)
+            if commit:
+                self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            logging.error("Query failed: %s | Error: %s", query, e)
+            return False
 
     def close(self) -> None:
         """
-        Closes the database connection"
+        Closes the database connection.
         """
         self.conn.close()

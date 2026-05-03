@@ -24,6 +24,7 @@ def main(config_path: str) -> None:
     If a RuntimeError occurs while starting the console,
         it catches the exception and logs an error message.
     """
+    logging.basicConfig(level=logging.INFO)
     config = load_config(config_path)
     handler = create_handler(config)
     console = create_console(handler, config)
