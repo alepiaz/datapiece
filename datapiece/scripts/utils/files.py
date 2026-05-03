@@ -2,7 +2,10 @@
 A module for checking file and directory permissions.
 """
 
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 
 def is_path_existent(path: str) -> bool:
@@ -18,7 +21,7 @@ def is_path_existent(path: str) -> bool:
     try:
         return os.path.exists(path)
     except OSError as e:
-        print(f"An OSError occurred while checking if the file exists: {e}")
+        logger.warning("OSError checking existence of %s: %s", path, e)
         return False
 
 
@@ -29,7 +32,7 @@ def is_path_readable(path: str) -> bool:
     try:
         return os.access(path, os.R_OK)
     except OSError as e:
-        print(f"An OSError occurred while checking if the file is readable: {e}")
+        logger.warning("OSError checking readability of %s: %s", path, e)
         return False
 
 
@@ -40,7 +43,7 @@ def is_path_writeable(path: str) -> bool:
     try:
         return os.access(path, os.W_OK)
     except OSError as e:
-        print(f"An OSError occurred while checking if the file is writable: {e}")
+        logger.warning("OSError checking writability of %s: %s", path, e)
         return False
 
 

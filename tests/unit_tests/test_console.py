@@ -22,6 +22,10 @@ class TestConsole(unittest.TestCase):
         self.mock_handler = Mock(spec=DBQueryHandler)
         self.mock_handler.conn = Mock()
         self.mock_config = {"commands": {"exclude_list": ["__init__"]}}
+        self.session_patcher = patch("datapiece.scripts.console.Session")
+        self.mock_session_cls = self.session_patcher.start()
+        self.mock_session = self.mock_session_cls.return_value
+        self.mock_session.prompt_label.return_value = ""
         self.console = Console(self.mock_handler, self.mock_config)
         self.patcher = patch("datapiece.scripts.console.Readline")
         self.mock_readline = self.patcher.start()
@@ -32,6 +36,7 @@ class TestConsole(unittest.TestCase):
         Clean up after the test case.
         """
         self.mock_readline.stop()
+        self.session_patcher.stop()
 
     def _test_start(
         self,

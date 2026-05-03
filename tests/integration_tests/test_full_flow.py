@@ -7,8 +7,9 @@ import sqlite3
 import tempfile
 import unittest
 
-from datapiece.scripts.db_query_handler import DBQueryHandler
 from datapiece.scripts.commands import Commands
+from datapiece.scripts.db_query_handler import DBQueryHandler
+from datapiece.scripts.session import Session
 
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "sql", "schema.sql")
@@ -22,57 +23,201 @@ class TestFullFlow(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp_dir = tempfile.mkdtemp()
         self.db_path = os.path.join(self.tmp_dir, "test.db")
-        config = {
-            "schema": SCHEMA_PATH,
-            "db": self.db_path,
-            "mode": "test",
-        }
+        self.session_path = os.path.join(self.tmp_dir, "session.json")
+        config = {"schema": SCHEMA_PATH, "db": self.db_path, "mode": "test"}
         self.handler = DBQueryHandler(config)
-        self.commands = Commands(self.handler, {})
+        self.session = Session(self.session_path)
+        self.commands = Commands(self.handler, {}, self.session)
 
     def tearDown(self) -> None:
         self.handler.close()
 
+    # ------------------------------------------------------------------
+    # Schema
+    # ------------------------------------------------------------------
+
     def test_schema_is_created_on_fresh_db(self) -> None:
+        """All expected tables exist after handler initialises a fresh database."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = {row[0] for row in cursor.fetchall()}
         conn.close()
-        self.assertIn("Volumes", tables)
-        self.assertIn("Characters", tables)
-        self.assertIn("Chapters", tables)
+        for expected in ("Volumes", "Characters", "Chapters", "Sagas", "Arcs"):
+            self.assertIn(expected, tables)
+
+    def test_db_directory_created_automatically(self) -> None:
+        """Handler creates missing parent directories before connecting."""
+        nested_path = os.path.join(self.tmp_dir, "nested", "subdir", "fresh.db")
+        config = {"schema": SCHEMA_PATH, "db": nested_path, "mode": "test"}
+        handler = DBQueryHandler(config)
+        handler.close()
+        self.assertTrue(os.path.exists(nested_path))
+
+    # ------------------------------------------------------------------
+    # Sagas
+    # ------------------------------------------------------------------
+
+    def test_add_saga_inserts_row(self) -> None:
+        """add_saga persists a saga row with the correct name and order."""
+        self.commands.add_saga("East Blue", "1")
+        conn = sqlite3.connect(self.db_path)
+        row = conn.execute("SELECT SagaName, SagaOrder FROM Sagas WHERE SagaID = 1").fetchone()
+        conn.close()
+        self.assertIsNotNone(row)
+        self.assertEqual(row[0], "East Blue")
+        self.assertEqual(row[1], 1)
+
+    def test_add_saga_duplicate_fails_gracefully(self) -> None:
+        """add_saga does not raise when called with duplicate arguments."""
+        self.commands.add_saga("East Blue", "1")
+        # Inserting same order violates UNIQUE on (SagaName, SagaOrder) if any — but
+        # actually there's no unique constraint except primary key. A second insert
+        # with the same name/order will just create a new row.  The real guard is
+        # the execute_insert returning None on sqlite error.
+        # Just verify no exception is raised.
+        self.commands.add_saga("East Blue", "1")
+
+    # ------------------------------------------------------------------
+    # Arcs
+    # ------------------------------------------------------------------
+
+    def test_add_arc_inserts_row(self) -> None:
+        self.commands.add_saga("East Blue", "1")
+        self.commands.add_arc("1", "Romance Dawn", "1")
+        conn = sqlite3.connect(self.db_path)
+        row = conn.execute(
+            "SELECT ArcName, ArcOrder, SagaID FROM Arcs WHERE ArcID = 1"
+        ).fetchone()
+        conn.close()
+        self.assertIsNotNone(row)
+        self.assertEqual(row[0], "Romance Dawn")
+        self.assertEqual(row[2], 1)
+
+    def test_add_arc_rejects_missing_saga(self) -> None:
+        # saga 99 was never inserted — command should warn and not insert
+        self.commands.add_arc("99", "Romance Dawn", "1")
+        conn = sqlite3.connect(self.db_path)
+        rows = conn.execute("SELECT * FROM Arcs").fetchall()
+        conn.close()
+        self.assertEqual(rows, [])
+
+    # ------------------------------------------------------------------
+    # Volumes
+    # ------------------------------------------------------------------
 
     def test_start_volume_inserts_row(self) -> None:
-        self.commands.start_volume(1)
+        self.commands.start_volume("1")
         conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT VolumeNumber FROM Volumes WHERE VolumeNumber = 1")
-        row = cursor.fetchone()
+        row = conn.execute("SELECT VolumeNumber FROM Volumes WHERE VolumeNumber = 1").fetchone()
         conn.close()
         self.assertIsNotNone(row)
         self.assertEqual(row[0], 1)
 
-    def test_start_volume_duplicate_fails_gracefully(self) -> None:
-        success1 = self.handler.execute_query(
-            "INSERT INTO `Volumes` (`VolumeNumber`) VALUES (?)", params=(99,)
-        )
-        success2 = self.handler.execute_query(
-            "INSERT INTO `Volumes` (`VolumeNumber`) VALUES (?)", params=(99,)
-        )
-        self.assertTrue(success1)
-        self.assertFalse(success2)
+    def test_start_volume_sets_session(self) -> None:
+        self.commands.start_volume("3")
+        self.assertEqual(self.session.get("volume"), 3)
+        self.assertIsNone(self.session.get("chapter"))
 
-    def test_db_directory_created_automatically(self) -> None:
-        nested_path = os.path.join(self.tmp_dir, "nested", "subdir", "fresh.db")
-        config = {
-            "schema": SCHEMA_PATH,
-            "db": nested_path,
-            "mode": "test",
-        }
-        handler = DBQueryHandler(config)
-        handler.close()
-        self.assertTrue(os.path.exists(nested_path))
+    def test_start_volume_existing_does_not_duplicate(self) -> None:
+        self.commands.start_volume("1")
+        self.commands.start_volume("1")  # second call — volume already exists
+        conn = sqlite3.connect(self.db_path)
+        rows = conn.execute("SELECT VolumeNumber FROM Volumes WHERE VolumeNumber = 1").fetchall()
+        conn.close()
+        self.assertEqual(len(rows), 1)
+
+    def test_start_volume_with_release_date(self) -> None:
+        self.commands.start_volume("1", "1997-12-24")
+        conn = sqlite3.connect(self.db_path)
+        row = conn.execute("SELECT ReleaseDate FROM Volumes WHERE VolumeNumber = 1").fetchone()
+        conn.close()
+        self.assertEqual(row[0], "1997-12-24")
+
+    # ------------------------------------------------------------------
+    # Chapters
+    # ------------------------------------------------------------------
+
+    def test_start_chapter_inserts_row(self) -> None:
+        self.commands.add_saga("East Blue", "1")
+        self.commands.add_arc("1", "Romance Dawn", "1")
+        self.commands.start_volume("1")
+        self.commands.start_chapter("1", "1", "Romance Dawn", "1997-07-22", "53")
+        conn = sqlite3.connect(self.db_path)
+        row = conn.execute(
+            "SELECT ChapterNumber, ChapterName, PublicationDate, PageCount "
+            "FROM Chapters WHERE ChapterID = 1"
+        ).fetchone()
+        conn.close()
+        self.assertIsNotNone(row)
+        self.assertEqual(row[0], 1)
+        self.assertEqual(row[1], "Romance Dawn")
+        self.assertEqual(row[2], "1997-07-22")
+        self.assertEqual(row[3], 53)
+
+    def test_start_chapter_sets_session(self) -> None:
+        self.commands.add_saga("East Blue", "1")
+        self.commands.add_arc("1", "Romance Dawn", "1")
+        self.commands.start_volume("1")
+        self.commands.start_chapter("1", "1")
+        self.assertEqual(self.session.get("chapter"), 1)
+        self.assertEqual(self.session.get("arc_id"), 1)
+        self.assertIsNone(self.session.get("page"))
+
+    def test_start_chapter_reuses_arc_from_session(self) -> None:
+        self.commands.add_saga("East Blue", "1")
+        self.commands.add_arc("1", "Romance Dawn", "1")
+        self.commands.start_volume("1")
+        self.commands.start_chapter("1", "1")         # sets arc_id=1 in session
+        self.commands.start_chapter("2")              # should reuse arc_id=1
+        conn = sqlite3.connect(self.db_path)
+        row = conn.execute("SELECT ArcID FROM Chapters WHERE ChapterID = 2").fetchone()
+        conn.close()
+        self.assertEqual(row[0], 1)
+
+    def test_list_chapters_returns_correct_arc(self) -> None:
+        self.commands.add_saga("East Blue", "1")
+        self.commands.add_arc("1", "Romance Dawn", "1")
+        self.commands.start_volume("1")
+        for i in range(1, 4):
+            self.commands.start_chapter(str(i), "1", f"Chapter {i}")
+        rows = self.handler.fetch_query(
+            "SELECT ChapterNumber FROM Chapters WHERE ArcID = 1 ORDER BY ChapterNumber"
+        )
+        self.assertIsNotNone(rows)
+        self.assertEqual([r[0] for r in rows or []], [1, 2, 3])
+
+    def test_start_chapter_duplicate_fails_gracefully(self) -> None:
+        self.commands.add_saga("East Blue", "1")
+        self.commands.add_arc("1", "Romance Dawn", "1")
+        self.commands.start_volume("1")
+        self.commands.start_chapter("1", "1")
+        # Duplicate should not raise
+        self.commands.start_chapter("1", "1")
+
+    # ------------------------------------------------------------------
+    # Session persistence
+    # ------------------------------------------------------------------
+
+    def test_session_persists_to_disk(self) -> None:
+        self.commands.start_volume("5")
+        # Re-load session from the same file
+        reloaded = Session(self.session_path)
+        self.assertEqual(reloaded.get("volume"), 5)
+
+    # ------------------------------------------------------------------
+    # Duplicate insert guard
+    # ------------------------------------------------------------------
+
+    def test_duplicate_volume_fails_gracefully(self) -> None:
+        ok1 = self.handler.execute_query(
+            "INSERT INTO Volumes (VolumeNumber) VALUES (?)", params=(99,)
+        )
+        ok2 = self.handler.execute_query(
+            "INSERT INTO Volumes (VolumeNumber) VALUES (?)", params=(99,)
+        )
+        self.assertTrue(ok1)
+        self.assertFalse(ok2)
 
 
 if __name__ == "__main__":

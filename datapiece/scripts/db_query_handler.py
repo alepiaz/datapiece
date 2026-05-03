@@ -5,10 +5,13 @@ This module defines the DBQueryHandler class for handling database queries.
 import logging
 import os
 import sqlite3
+from typing import Optional
 
 from datapiece.scripts.utils.config import get_key_str
 from datapiece.scripts.utils.files import (is_readable_existing_file,
                                            is_existing_file_in_writeable_directory)
+
+logger = logging.getLogger(__name__)
 
 
 class DBQueryHandler:
@@ -23,25 +26,37 @@ class DBQueryHandler:
         cursor (sqlite3.Cursor): SQLite database cursor.
     """
 
-    def __init__(self, config: dict, delete_db: bool = False) -> None:
+    def __init__(
+        self, config: dict, delete_db: bool = False, dry_run: bool = False, debug: bool = False
+    ) -> None:
         """
         Initializes the DBQueryHandler with the given configuration and deletion flag.
 
         Parameters:
             config (dict): Configuration dictionary.
             delete_db (bool): Deletion flag.
+            dry_run (bool): When True, writes are printed but not executed.
+            debug (bool): When True, use an in-memory database — no changes are persisted.
         """
 
         self.schema_file = get_key_str(config, "schema")
         self.db_path = get_key_str(config, "db")
         self.test_mode = get_key_str(config, "mode") == "test"
         self.delete_db = delete_db
-        self._handle_database_deletion()
-        db_dir = os.path.dirname(os.path.abspath(self.db_path))
-        os.makedirs(db_dir, exist_ok=True)
-        self.conn = sqlite3.connect(self.db_path)
-        self.cursor = self.conn.cursor()
-        self._connect_to_database()
+        self.dry_run = dry_run
+        self.debug = debug
+
+        if debug:
+            self.conn = sqlite3.connect(":memory:")
+            self.cursor = self.conn.cursor()
+            self._create_database()
+        else:
+            self._handle_database_deletion()
+            db_dir = os.path.dirname(os.path.abspath(self.db_path))
+            os.makedirs(db_dir, exist_ok=True)
+            self.conn = sqlite3.connect(self.db_path)
+            self.cursor = self.conn.cursor()
+            self._connect_to_database()
 
     def _handle_database_deletion(self) -> None:
         """
@@ -85,8 +100,8 @@ class DBQueryHandler:
             with open(self.schema_file, "r", encoding="utf-8") as f:
                 return [cmd.strip() for cmd in f.read().split(";") if cmd.strip()]
         except FileNotFoundError:
-            logging.error("Schema file %s does not exist.", self.schema_file)
-            return []
+            logger.error("Schema file %s does not exist.", self.schema_file)
+            raise RuntimeError(f"Schema file not found: {self.schema_file}")
 
     def _execute_sql_commands_list(self, sql_commands: list[str]) -> None:
         """
@@ -99,9 +114,52 @@ class DBQueryHandler:
             self.execute_query(command, commit=False)
         self.conn.commit()
 
+    def execute_insert(self, query: str, params: tuple = ()) -> Optional[int]:
+        """
+        Executes an INSERT and returns the new row's ID, or None on failure.
+        In dry_run mode prints the query and returns a sentinel ID of -1.
+
+        Parameters:
+            query (str): SQL INSERT query.
+            params (tuple): Query parameters.
+
+        Returns:
+            Optional[int]: The rowid of the inserted row, -1 in dry_run, or None on error.
+        """
+        if self.dry_run:
+            print(f"[dry-run] INSERT  {query}  params={params}")
+            return -1
+        try:
+            self.cursor.execute(query, params)
+            self.conn.commit()
+            return self.cursor.lastrowid
+        except sqlite3.Error as e:
+            logger.error("Query failed: %s | Error: %s", query, e)
+            return None
+
+    def fetch_query(self, query: str, params: tuple = ()) -> Optional[list[tuple]]:
+        """
+        Executes a SELECT query and returns all matching rows.
+
+        Parameters:
+            query (str): SQL SELECT query.
+            params (tuple): Query parameters for parameterized queries.
+
+        Returns:
+            list[tuple]: Rows returned by the query.
+            None: If the query failed (distinguishable from an empty result).
+        """
+        try:
+            self.cursor.execute(query, params)
+            return self.cursor.fetchall()
+        except sqlite3.Error as e:
+            logger.error("Query failed: %s | Error: %s", query, e)
+            return None
+
     def execute_query(self, query: str, params: tuple = (), commit: bool = True) -> bool:
         """
         Executes the given SQL query and commits the changes.
+        In dry_run mode only SELECT / schema queries are executed; writes are printed.
 
         Parameters:
             query (str): SQL query.
@@ -111,13 +169,17 @@ class DBQueryHandler:
         Returns:
             bool: True if the query succeeded, False otherwise.
         """
+        _write_keywords = ("INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE")
+        if self.dry_run and query.lstrip().upper().startswith(_write_keywords):
+            print(f"[dry-run] WRITE   {query}  params={params}")
+            return True
         try:
             self.cursor.execute(query, params)
             if commit:
                 self.conn.commit()
             return True
         except sqlite3.Error as e:
-            logging.error("Query failed: %s | Error: %s", query, e)
+            logger.error("Query failed: %s | Error: %s", query, e)
             return False
 
     def close(self) -> None:
