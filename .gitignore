@@ -1,4 +1,6 @@
 /.vscode
+/ci.ps1
+/.datapiece_history
 /db
 # Byte-compiled / optimized / DLL files
 __pycache__/
