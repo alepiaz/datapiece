@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 # Built-in aliases — can be overridden or extended in config.json
 _DEFAULT_ALIASES: dict[str, str] = {
+    "ss":  "start_saga",
+    "sa":  "start_arc",
     "sv":  "start_volume",
     "sc":  "start_chapter",
     "lv":  "list_volumes",
@@ -53,18 +55,20 @@ _TUTORIAL_STEPS: list[tuple[str, str]] = [
         "",
     ),
     (
-        "Step 1 — Create a Saga.\n"
-        "Sagas are the top-level story groups (e.g. 'East Blue Saga').\n"
-        "Syntax:  add_saga <name> <order>\n"
-        "Type:    add_saga East Blue 1",
-        "add_saga East Blue 1",
+        "Step 1 — Start a Saga.\n"
+        "Sagas are the top-level story groups (e.g. 'East Blue').\n"
+        "The order is assigned automatically.\n"
+        "Syntax:  start_saga <name>\n"
+        "Type:    start_saga East Blue",
+        "start_saga East Blue",
     ),
     (
-        "Step 2 — Create an Arc inside that Saga.\n"
+        "Step 2 — Start an Arc inside the active Saga.\n"
         "Arcs belong to a Saga and group related chapters.\n"
-        "Syntax:  add_arc <saga_id> <name> <order>\n"
-        "Type:    add_arc 1 Romance Dawn 1",
-        "add_arc 1 Romance Dawn 1",
+        "The session remembers which saga you just opened — no ID needed.\n"
+        "Syntax:  start_arc <name>\n"
+        "Type:    start_arc Romance Dawn",
+        "start_arc Romance Dawn",
     ),
     (
         "Step 3 — Open a Volume.\n"
@@ -75,10 +79,10 @@ _TUTORIAL_STEPS: list[tuple[str, str]] = [
     ),
     (
         "Step 4 — Add a Chapter.\n"
-        "Chapters belong to the active volume and to an arc.\n"
-        "Syntax:  start_chapter <number> [arc_id] [name] [pub_date] [page_count]\n"
-        "Type:    start_chapter 1 1 Romance Dawn 1999-07-22 53",
-        "start_chapter 1 1 Romance Dawn 1999-07-22 53",
+        "The session already knows which arc and volume you are in.\n"
+        "Syntax:  start_chapter <number> [name] [pub_date] [page_count]\n"
+        "Type:    start_chapter 1 Romance Dawn 1999-07-22 53",
+        "start_chapter 1 Romance Dawn 1999-07-22 53",
     ),
     (
         "Step 5 — Check your current session.\n"
@@ -87,7 +91,7 @@ _TUTORIAL_STEPS: list[tuple[str, str]] = [
         "status",
     ),
     (
-        "Step 6 — List chapters in an arc.\n"
+        "Step 6 — List chapters in the current arc.\n"
         "Syntax:  list_chapters <arc_id>\n"
         "Type:    list_chapters 1",
         "list_chapters 1",
@@ -111,8 +115,10 @@ _TUTORIAL_STEPS: list[tuple[str, str]] = [
         "count chapters",
     ),
     (
-        "Tutorial complete! This database is temporary — experiment freely.\n"
-        "Type any command to continue, or 'exit' to quit.",
+        "Tutorial complete!\n"
+        "The normal workflow is:  start_saga → start_arc → start_volume → start_chapter\n"
+        "Use add_saga / add_arc to insert metadata without changing your active context.\n"
+        "This database is temporary — experiment freely. Type 'exit' to quit.",
         "",
     ),
 ]
@@ -388,15 +394,17 @@ class Console:  # pylint: disable=too-many-instance-attributes
 
     def _print_help(self) -> None:
         sections = [
-            ("Metadata setup",
-             [("add_saga <name> <order>",            "Create a saga"),
-              ("add_arc <saga_id> <name> <order>",   "Create an arc"),
-              ]),
-            ("Session navigation",
-             [("start_volume <n> [date]",             "Open a volume"),
+            ("Session navigation  (normal workflow)",
+             [("start_saga <name>",                              "Create saga, enter it"),
+              ("start_arc <name>",                              "Create arc in active saga"),
+              ("start_volume <n> [date]",                       "Open a volume"),
               ("start_chapter <n> [arc] [name] [date] [pages]", "Open a chapter"),
-              ("go [V<n>][/C<n>]",                   "Jump to any position"),
-              ("back",                                "Step up one level"),
+              ("go [V<n>][/C<n>]",                              "Jump to any position"),
+              ("back",                                           "Step up one level"),
+              ]),
+            ("Metadata (exception — does not change active context)",
+             [("add_saga <name> [order]",             "Insert a saga out-of-sequence"),
+              ("add_arc <saga_ref> <name> [order]",   "Insert an arc out-of-sequence"),
               ]),
             ("Lists",
              [("list_sagas",                          "All sagas"),

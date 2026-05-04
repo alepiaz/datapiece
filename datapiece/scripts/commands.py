@@ -19,6 +19,7 @@ _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # Console reads this to build suggestions like "1:Romance Dawn".
 COMPLETION_MAP: dict[str, dict[int, tuple[str, str] | list[str]]] = {
     "start_chapter": {1: ("SELECT ArcID, ArcName FROM Arcs ORDER BY ArcID", "arc")},
+    "start_arc":     {0: ("SELECT SagaID, SagaName FROM Sagas ORDER BY SagaID", "saga")},
     "add_arc":       {0: ("SELECT SagaID, SagaName FROM Sagas ORDER BY SagaID", "saga")},
     "list_arcs":     {0: ("SELECT SagaID, SagaName FROM Sagas ORDER BY SagaID", "saga")},
     "list_chapters": {0: ("SELECT ArcID, ArcName FROM Arcs ORDER BY ArcID", "arc")},
@@ -43,8 +44,10 @@ class Commands:
         self._register_commands()
 
     def _register_commands(self) -> None:
+        self._registry["start_saga"]    = self.start_saga
         self._registry["add_saga"]      = self.add_saga
         self._registry["list_sagas"]    = self.list_sagas
+        self._registry["start_arc"]     = self.start_arc
         self._registry["add_arc"]       = self.add_arc
         self._registry["list_arcs"]     = self.list_arcs
         self._registry["start_volume"]  = self.start_volume
@@ -91,6 +94,7 @@ class Commands:
 
     def _snapshot_session(self) -> dict:
         return {
+            "saga_id":  self.session.get("saga_id"),
             "volume":   self.session.get("volume"),
             "arc_id":   self.session.get("arc_id"),
             "chapter":  self.session.get("chapter"),
@@ -98,22 +102,81 @@ class Commands:
             "panel_id": self.session.get("panel_id"),
         }
 
+    def _resolve_saga(self, ref: str) -> Optional[int]:
+        """Resolve a saga reference — integer ID or exact name (case-insensitive)."""
+        try:
+            return int(ref)
+        except ValueError:
+            rows = self.handler.fetch_query(
+                "SELECT SagaID FROM Sagas WHERE LOWER(SagaName) = LOWER(?)", params=(ref,)
+            )
+            return rows[0][0] if rows else None
+
+    def _resolve_arc(self, ref: str) -> Optional[int]:
+        """Resolve an arc reference — integer ID or exact name (case-insensitive)."""
+        try:
+            return int(ref)
+        except ValueError:
+            rows = self.handler.fetch_query(
+                "SELECT ArcID FROM Arcs WHERE LOWER(ArcName) = LOWER(?)", params=(ref,)
+            )
+            return rows[0][0] if rows else None
+
+    def _next_saga_order(self) -> int:
+        rows = self.handler.fetch_query("SELECT COALESCE(MAX(SagaOrder), 0) FROM Sagas")
+        return (rows[0][0] if rows else 0) + 1
+
+    def _next_arc_order(self, saga_id: int) -> int:
+        rows = self.handler.fetch_query(
+            "SELECT COALESCE(MAX(ArcOrder), 0) FROM Arcs WHERE SagaID = ?", params=(saga_id,)
+        )
+        return (rows[0][0] if rows else 0) + 1
+
     # ------------------------------------------------------------------
     # Sagas
     # ------------------------------------------------------------------
 
+    def start_saga(self, *args: str) -> None:
+        """start_saga <name>  —  create the next saga and make it the active context."""
+        if not args:
+            print(colors.warn("Usage: start_saga <name>"))
+            return
+        name = " ".join(args)
+        order = self._next_saga_order()
+        prev = self._snapshot_session()
+        saga_id = self.handler.execute_insert(
+            "INSERT INTO Sagas (SagaName, SagaOrder) VALUES (?, ?)",
+            params=(name, order),
+        )
+        if saga_id is not None:
+            self.session.record_insert("Sagas", "SagaID", saga_id, f"Saga '{name}'", prev)
+            self.session.set(saga_id=saga_id)
+            print(colors.ok(f"Saga '{name}' added  [ID {saga_id}].") + "  " +
+                  colors.info(f"Now in Saga '{name}'."))
+        else:
+            print(colors.error(f"Failed to add saga '{name}'. It may already exist."))
+
     def add_saga(self, *args: str) -> None:
-        """add_saga <name> <order>  —  last token is the order number."""
+        """add_saga <name> [order]  —  insert a saga without changing the active context.
+
+        order defaults to the next available number.  Use this to add metadata
+        out-of-sequence without disrupting your current session.
+        """
         logger.debug("add_saga called with args=%s", args)
-        if len(args) < 2:
-            print(colors.warn("Usage: add_saga <name> <order>"))
+        if not args:
+            print(colors.warn("Usage: add_saga <name> [order]"))
             return
-        try:
-            order = int(args[-1])
-        except ValueError:
-            print(colors.error("Error: <order> must be an integer."))
-            return
-        name = " ".join(args[:-1])
+        # Optional explicit order: last token is an integer
+        if len(args) >= 2:
+            try:
+                order = int(args[-1])
+                name = " ".join(args[:-1])
+            except ValueError:
+                order = self._next_saga_order()
+                name = " ".join(args)
+        else:
+            order = self._next_saga_order()
+            name = args[0]
         prev = self._snapshot_session()
         saga_id = self.handler.execute_insert(
             "INSERT INTO Sagas (SagaName, SagaOrder) VALUES (?, ?)",
@@ -145,21 +208,78 @@ class Commands:
     # Arcs
     # ------------------------------------------------------------------
 
+    def start_arc(self, *args: str) -> None:
+        """start_arc <name>  —  create the next arc in the active saga and enter it.
+
+        The saga is taken from the session (set by start_saga).  To override,
+        pass a saga ID or its exact name as the first token:
+          start_arc 2 Alabasta        — saga by ID
+          start_arc EastBlue RomanceDawn  — saga by single-token exact name
+        """
+        if not args:
+            print(colors.warn("Usage: start_arc <name>"))
+            return
+        rest = list(args)
+        # Detect optional leading saga ref (int ID or single-token exact name)
+        saga_id = self._resolve_saga(rest[0])
+        if saga_id is not None:
+            rest = rest[1:]
+        else:
+            saga_id = self.session.get("saga_id")
+        if not rest:
+            print(colors.warn("Usage: start_arc <name>"))
+            return
+        if saga_id is None:
+            print(colors.error("No active saga. Run: start_saga <name>"))
+            return
+        if not self._saga_exists(saga_id):
+            print(colors.warn(f"Warning: saga {saga_id} does not exist."))
+            return
+        name = " ".join(rest)
+        order = self._next_arc_order(saga_id)
+        prev = self._snapshot_session()
+        arc_id = self.handler.execute_insert(
+            "INSERT INTO Arcs (SagaID, ArcName, ArcOrder) VALUES (?, ?, ?)",
+            params=(saga_id, name, order),
+        )
+        if arc_id is not None:
+            self.session.record_insert("Arcs", "ArcID", arc_id, f"Arc '{name}'", prev)
+            self.session.set(saga_id=saga_id, arc_id=arc_id)
+            print(colors.ok(f"Arc '{name}' added  [ID {arc_id}].") + "  " +
+                  colors.info(f"Now in Arc '{name}'."))
+        else:
+            print(colors.error(f"Failed to add arc '{name}'."))
+
     def add_arc(self, *args: str) -> None:
-        """add_arc <saga_id> <name> <order>  —  first token is saga_id, last is order."""
+        """add_arc <saga_ref> <name> [order]  —  insert an arc without changing the session.
+
+        saga_ref: integer SagaID or exact saga name.
+        order defaults to the next available number within that saga.
+        """
         logger.debug("add_arc called with args=%s", args)
-        if len(args) < 3:
-            print(colors.warn("Usage: add_arc <saga_id> <name> <order>"))
+        if len(args) < 2:
+            print(colors.warn("Usage: add_arc <saga_ref> <name> [order]"))
             return
-        try:
-            saga_id = int(args[0])
-            order = int(args[-1])
-        except ValueError:
-            print(colors.error("Error: <saga_id> and <order> must be integers."))
+        # Resolve saga from first token (int ID or exact name)
+        saga_id = self._resolve_saga(args[0])
+        if saga_id is None:
+            print(colors.error(
+                f"Cannot find saga '{args[0]}'. Use an integer ID or exact saga name."
+            ))
             return
-        name = " ".join(args[1:-1])
+        # Optional explicit order: last remaining token is an integer
+        rest = list(args[1:])
+        if len(rest) >= 2:
+            try:
+                order = int(rest[-1])
+                rest = rest[:-1]
+            except ValueError:
+                order = self._next_arc_order(saga_id)
+        else:
+            order = self._next_arc_order(saga_id)
+        name = " ".join(rest)
         if not name:
-            print(colors.warn("Usage: add_arc <saga_id> <name> <order>"))
+            print(colors.warn("Usage: add_arc <saga_ref> <name> [order]"))
             return
         if not self._saga_exists(saga_id):
             print(colors.warn(
@@ -314,10 +434,11 @@ class Commands:
 
         arc_id = None
         if rest:
-            try:
-                arc_id = int(rest[0])
+            resolved = self._resolve_arc(rest[0])
+            if resolved is not None:
+                arc_id = resolved
                 rest = rest[1:]
-            except ValueError:
+            else:
                 arc_id = self.session.get("arc_id")
         else:
             arc_id = self.session.get("arc_id")

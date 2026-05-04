@@ -11,7 +11,7 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 _HIERARCHY = ("volume", "arc_id", "chapter", "page", "panel_id")
-_ALL_KEYS = _HIERARCHY + ("last_insert",)
+_ALL_KEYS = _HIERARCHY + ("saga_id", "last_insert",)
 
 
 class Session:
