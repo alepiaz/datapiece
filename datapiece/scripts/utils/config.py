@@ -25,14 +25,14 @@ def load_config(config_path: str) -> dict[str, Any]:
     try:
         with open(config_path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except FileNotFoundError:
+    except FileNotFoundError as exc:
         print(f"Error: config file not found: {config_path}")
         logger.error("Config file not found: %s", config_path)
-        raise SystemExit(1)
+        raise SystemExit(1) from exc
     except json.JSONDecodeError as e:
         print(f"Error: config file is not valid JSON: {config_path}: {e}")
         logger.error("Config JSON parse error in %s: %s", config_path, e)
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
 
 def get_key_dict(d: dict[str, Any], key: str) -> dict[str, Any]:

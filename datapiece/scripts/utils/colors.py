@@ -18,32 +18,33 @@ _RED    = "\033[31m"
 _CYAN   = "\033[36m"
 _WHITE  = "\033[37m"
 
-_enabled = False
+_enabled = False  # pylint: disable=invalid-name
 
 
 def init() -> None:
     """Enable ANSI colors if the terminal supports them."""
-    global _enabled
+    global _enabled  # pylint: disable=global-statement
     if not sys.stdout.isatty():
         return
     if os.name == "nt":
         # Enable VIRTUAL_TERMINAL_PROCESSING on Windows 10+
         try:
-            import ctypes
+            import ctypes  # pylint: disable=import-outside-toplevel
             kernel32 = ctypes.windll.kernel32
             handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
             mode = ctypes.c_ulong()
             if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
                 kernel32.SetConsoleMode(handle, mode.value | 0x0004)
             _enabled = True
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             logger.debug("ANSI color init failed: %s", e)
     else:
         _enabled = True
 
 
 def disable() -> None:
-    global _enabled
+    """Disable ANSI color output."""
+    global _enabled  # pylint: disable=global-statement
     _enabled = False
 
 
@@ -73,6 +74,7 @@ def dim(text: str) -> str:
 
 
 def bold(text: str) -> str:
+    """Bold — emphasis."""
     return f"{_BOLD}{text}{_RESET}" if _enabled else text
 
 

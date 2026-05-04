@@ -61,6 +61,7 @@ class Commands:
         self._registry["export"]        = self.export
 
     def get_command_names(self) -> list[str]:
+        """Return the list of registered command names."""
         return list(self._registry.keys())
 
     def _is_valid_command(self, func: str) -> bool:
@@ -278,7 +279,7 @@ class Commands:
     # Chapters
     # ------------------------------------------------------------------
 
-    def start_chapter(self, *args: str) -> None:
+    def start_chapter(self, *args: str) -> None:  # pylint: disable=too-many-branches
         """start_chapter <number> [arc_id] [name] [pub_date] [page_count]
 
         Requires an active volume (run start_volume first).
@@ -456,7 +457,7 @@ class Commands:
         Types: arc, saga, chapter, volume
         Example: find arc dawn
         """
-        _TYPES = {
+        types_map = {
             "arc": (
                 "SELECT ArcID, ArcName FROM Arcs WHERE ArcName LIKE ?",
                 "ArcID", "ArcName",
@@ -475,14 +476,14 @@ class Commands:
             ),
         }
         if len(args) < 2:
-            print(colors.warn("Usage: find <type> <term>   types: " + ", ".join(_TYPES)))
+            print(colors.warn("Usage: find <type> <term>   types: " + ", ".join(types_map)))
             return
         kind = args[0].lower()
         term = "%" + " ".join(args[1:]) + "%"
-        if kind not in _TYPES:
-            print(colors.error(f"Unknown type '{kind}'. Choose from: {', '.join(_TYPES)}"))
+        if kind not in types_map:
+            print(colors.error(f"Unknown type '{kind}'. Choose from: {', '.join(types_map)}"))
             return
-        query, id_col, name_col = _TYPES[kind]
+        query = types_map[kind][0]
         rows = self.handler.fetch_query(query, params=(term,))
         if rows is None:
             print(colors.error("Database error — search failed."))
@@ -596,20 +597,20 @@ class Commands:
           count chapters 2        — chapters in arc 2
           count arcs 1            — arcs in saga 1
         """
-        _CONFIG = {
+        config_map = {
             "chapters": ("Chapters", "ArcID",    "arc"),
             "arcs":     ("Arcs",     "SagaID",   "saga"),
             "volumes":  ("Volumes",  None,        None),
             "sagas":    ("Sagas",    None,        None),
         }
         if not args:
-            print(colors.warn("Usage: count <type> [id]   types: " + ", ".join(_CONFIG)))
+            print(colors.warn("Usage: count <type> [id]   types: " + ", ".join(config_map)))
             return
         kind = args[0].lower()
-        if kind not in _CONFIG:
-            print(colors.error(f"Unknown type '{kind}'. Choose from: {', '.join(_CONFIG)}"))
+        if kind not in config_map:
+            print(colors.error(f"Unknown type '{kind}'. Choose from: {', '.join(config_map)}"))
             return
-        table, filter_col, filter_label = _CONFIG[kind]
+        table, filter_col, filter_label = config_map[kind]
         if len(args) > 1 and filter_col:
             try:
                 fid = int(args[1])
@@ -633,7 +634,7 @@ class Commands:
     # export
     # ------------------------------------------------------------------
 
-    def export(self, *args: str) -> None:
+    def export(self, *args: str) -> None:  # pylint: disable=too-many-locals
         """export <type> [filter_id] [output_file]  —  dump a table to CSV.
 
         Examples:
@@ -641,7 +642,7 @@ class Commands:
           export chapters 2            — arc 2 chapters → chapters_arc2.csv
           export chapters 2 east.csv   — custom filename
         """
-        _CONFIG = {
+        config_map = {
             "chapters": (
                 "SELECT ChapterNumber, VolumeNumber, ArcID, ChapterName, "
                 "PublicationDate, PageCount FROM Chapters",
@@ -655,11 +656,11 @@ class Commands:
             print(colors.warn("Usage: export <type> [filter_id] [file]"))
             return
         kind = args[0].lower()
-        if kind not in _CONFIG:
-            print(colors.error(f"Unknown type '{kind}'. Choose from: {', '.join(_CONFIG)}"))
+        if kind not in config_map:
+            print(colors.error(f"Unknown type '{kind}'. Choose from: {', '.join(config_map)}"))
             return
 
-        base_query, filter_col, filter_label = _CONFIG[kind]
+        base_query, filter_col, filter_label = config_map[kind]
         rest = list(args[1:])
         fid = None
         outfile = None

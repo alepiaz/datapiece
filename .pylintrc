@@ -1,0 +1,7 @@
+[MASTER]
+# Regex patterns for paths that pylint should not check.
+# Tests are excluded here; run a separate, looser pylint pass on tests if needed.
+ignore-paths = .*tests.*
+
+[FORMAT]
+max-line-length = 100

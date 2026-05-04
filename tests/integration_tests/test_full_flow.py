@@ -83,6 +83,7 @@ class TestFullFlow(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_add_arc_inserts_row(self) -> None:
+        """add_arc persists an arc row with the correct name, order, and saga reference."""
         self.commands.add_saga("East Blue", "1")
         self.commands.add_arc("1", "Romance Dawn", "1")
         conn = sqlite3.connect(self.db_path)
@@ -95,6 +96,7 @@ class TestFullFlow(unittest.TestCase):
         self.assertEqual(row[2], 1)
 
     def test_add_arc_rejects_missing_saga(self) -> None:
+        """add_arc does not insert an arc when the referenced saga does not exist."""
         # saga 99 was never inserted — command should warn and not insert
         self.commands.add_arc("99", "Romance Dawn", "1")
         conn = sqlite3.connect(self.db_path)
@@ -107,6 +109,7 @@ class TestFullFlow(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_start_volume_inserts_row(self) -> None:
+        """start_volume persists a volume row with the correct number."""
         self.commands.start_volume("1")
         conn = sqlite3.connect(self.db_path)
         row = conn.execute("SELECT VolumeNumber FROM Volumes WHERE VolumeNumber = 1").fetchone()
@@ -115,11 +118,13 @@ class TestFullFlow(unittest.TestCase):
         self.assertEqual(row[0], 1)
 
     def test_start_volume_sets_session(self) -> None:
+        """start_volume updates the session volume and clears chapter."""
         self.commands.start_volume("3")
         self.assertEqual(self.session.get("volume"), 3)
         self.assertIsNone(self.session.get("chapter"))
 
     def test_start_volume_existing_does_not_duplicate(self) -> None:
+        """start_volume called twice with the same number does not create a duplicate row."""
         self.commands.start_volume("1")
         self.commands.start_volume("1")  # second call — volume already exists
         conn = sqlite3.connect(self.db_path)
@@ -128,6 +133,7 @@ class TestFullFlow(unittest.TestCase):
         self.assertEqual(len(rows), 1)
 
     def test_start_volume_with_release_date(self) -> None:
+        """start_volume stores the release date when provided."""
         self.commands.start_volume("1", "1997-12-24")
         conn = sqlite3.connect(self.db_path)
         row = conn.execute("SELECT ReleaseDate FROM Volumes WHERE VolumeNumber = 1").fetchone()
@@ -139,6 +145,7 @@ class TestFullFlow(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_start_chapter_inserts_row(self) -> None:
+        """start_chapter persists a chapter row with all provided metadata."""
         self.commands.add_saga("East Blue", "1")
         self.commands.add_arc("1", "Romance Dawn", "1")
         self.commands.start_volume("1")
@@ -156,6 +163,7 @@ class TestFullFlow(unittest.TestCase):
         self.assertEqual(row[3], 53)
 
     def test_start_chapter_sets_session(self) -> None:
+        """start_chapter updates the session chapter and arc_id."""
         self.commands.add_saga("East Blue", "1")
         self.commands.add_arc("1", "Romance Dawn", "1")
         self.commands.start_volume("1")
@@ -165,6 +173,7 @@ class TestFullFlow(unittest.TestCase):
         self.assertIsNone(self.session.get("page"))
 
     def test_start_chapter_reuses_arc_from_session(self) -> None:
+        """start_chapter reuses the arc_id stored in the session when omitted."""
         self.commands.add_saga("East Blue", "1")
         self.commands.add_arc("1", "Romance Dawn", "1")
         self.commands.start_volume("1")
@@ -176,6 +185,7 @@ class TestFullFlow(unittest.TestCase):
         self.assertEqual(row[0], 1)
 
     def test_list_chapters_returns_correct_arc(self) -> None:
+        """Only chapters belonging to the specified arc are returned."""
         self.commands.add_saga("East Blue", "1")
         self.commands.add_arc("1", "Romance Dawn", "1")
         self.commands.start_volume("1")
@@ -188,6 +198,7 @@ class TestFullFlow(unittest.TestCase):
         self.assertEqual([r[0] for r in rows or []], [1, 2, 3])
 
     def test_start_chapter_duplicate_fails_gracefully(self) -> None:
+        """start_chapter does not raise when called with a duplicate chapter number."""
         self.commands.add_saga("East Blue", "1")
         self.commands.add_arc("1", "Romance Dawn", "1")
         self.commands.start_volume("1")
@@ -200,6 +211,7 @@ class TestFullFlow(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_session_persists_to_disk(self) -> None:
+        """Session state is written to disk and reloadable across instances."""
         self.commands.start_volume("5")
         # Re-load session from the same file
         reloaded = Session(self.session_path)
@@ -210,6 +222,7 @@ class TestFullFlow(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_duplicate_volume_fails_gracefully(self) -> None:
+        """A second INSERT with the same VolumeNumber returns False without raising."""
         ok1 = self.handler.execute_query(
             "INSERT INTO Volumes (VolumeNumber) VALUES (?)", params=(99,)
         )

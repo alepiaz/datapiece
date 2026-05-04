@@ -14,7 +14,7 @@ from datapiece.scripts.utils.files import (is_readable_existing_file,
 logger = logging.getLogger(__name__)
 
 
-class DBQueryHandler:
+class DBQueryHandler:  # pylint: disable=too-many-instance-attributes
     """
     A handler for database queries.
 
@@ -99,9 +99,9 @@ class DBQueryHandler:
         try:
             with open(self.schema_file, "r", encoding="utf-8") as f:
                 return [cmd.strip() for cmd in f.read().split(";") if cmd.strip()]
-        except FileNotFoundError:
+        except FileNotFoundError as exc:
             logger.error("Schema file %s does not exist.", self.schema_file)
-            raise RuntimeError(f"Schema file not found: {self.schema_file}")
+            raise RuntimeError(f"Schema file not found: {self.schema_file}") from exc
 
     def _execute_sql_commands_list(self, sql_commands: list[str]) -> None:
         """

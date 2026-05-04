@@ -10,7 +10,7 @@ from datapiece.scripts.console import Console
 from datapiece.scripts.db_query_handler import DBQueryHandler
 
 
-class TestConsole(unittest.TestCase):
+class TestConsole(unittest.TestCase):  # pylint: disable=too-many-instance-attributes
     """
     Test case for the Console class.
     """

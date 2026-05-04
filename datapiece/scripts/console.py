@@ -118,7 +118,7 @@ _TUTORIAL_STEPS: list[tuple[str, str]] = [
 ]
 
 
-class Console:
+class Console:  # pylint: disable=too-many-instance-attributes
     """
     A console interface for interacting with a database.
     """
@@ -151,6 +151,7 @@ class Console:
     # ------------------------------------------------------------------
 
     def start(self) -> None:
+        """Start the interactive console loop."""
         rl = Readline()
         self._readline = rl
         rl.parse_and_bind("tab: complete")
@@ -292,10 +293,9 @@ class Console:
                 if resolved == expected:
                     self._execute_line(typed)
                     break
-                else:
-                    print(colors.warn(
-                        f"Not quite. Expected:  {colors.bold(expected)}"
-                    ))
+                print(colors.warn(
+                    f"Not quite. Expected:  {colors.bold(expected)}"
+                ))
 
         print()
         print(colors.bold("Entering interactive mode. Type 'exit' to quit."))
@@ -333,19 +333,19 @@ class Console:
         """
         try:
             options = self._build_completions(text)
-        except Exception as e:  # never crash the readline callback
+        except Exception as e:  # pylint: disable=broad-exception-caught
             logger.debug("Tab completion error: %s", e, exc_info=True)
             options = []
         if state < len(options):
             return options[state]
         return None
 
-    def _build_completions(self, text: str) -> list[str]:
+    def _build_completions(self, text: str) -> list[str]:  # pylint: disable=too-many-locals
         line: str = ""
         if self._readline is not None:
             try:
                 line = self._readline.get_line_buffer()
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-exception-caught
                 logger.debug("readline.get_line_buffer() failed: %s", e)
 
         parts = line.split()
@@ -373,7 +373,7 @@ class Console:
             return [s for s in spec if s.startswith(text)]
 
         # Dynamic query
-        sql, label = spec
+        sql, _ = spec
         rows = self.handler.fetch_query(sql)
         if rows is None:
             return []

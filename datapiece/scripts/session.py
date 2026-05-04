@@ -40,9 +40,10 @@ class Session:
                     self._state[key] = data[key]
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("Session file %s unreadable (%s): %s", self.path, type(e).__name__, e)
-            print(f"Warning: session file could not be read — starting a fresh session.")
+            print("Warning: session file could not be read — starting a fresh session.")
 
     def save(self) -> None:
+        """Persist the current state to disk (no-op when ephemeral)."""
         if self.ephemeral:
             print("(debug) Session is ephemeral — state not written to disk.")
             return
@@ -54,10 +55,12 @@ class Session:
             print(f"Warning: could not save session to {self.path}: {e}")
 
     def set(self, **kwargs: Any) -> None:
+        """Update one or more state keys and persist."""
         self._state.update(kwargs)
         self.save()
 
     def get(self, key: str) -> Optional[Any]:
+        """Return the value for key, or None if absent."""
         return self._state.get(key)
 
     def back(self) -> Optional[str]:
@@ -72,7 +75,7 @@ class Session:
                 return key
         return None
 
-    def record_insert(
+    def record_insert(  # pylint: disable=too-many-arguments
         self,
         table: str,
         id_col: str,
