@@ -52,7 +52,7 @@ def main(
         logging.error("An error occurred while starting the console: %s", error)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
 
     parser = argparse.ArgumentParser(
         description="Start the console with a given config file."

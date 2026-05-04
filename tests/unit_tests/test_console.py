@@ -74,22 +74,18 @@ class TestConsole(unittest.TestCase):  # pylint: disable=too-many-instance-attri
 
     def test_start_keyboard_interrupt(self) -> None:
         """
-        Test the start method with a keyboard interrupt.
+        Test the start method with a keyboard interrupt — loop continues then exhausts.
         """
         self.mock_readline_instance.readline.side_effect = iter([KeyboardInterrupt])
-        with patch("logging.info") as mock_output:
-            with self.assertRaises(StopIteration):
-                self.console.start()
-            mock_output.assert_called_with("Exit")
+        with self.assertRaises(StopIteration):
+            self.console.start()
 
     def test_start_eof_error(self) -> None:
         """
-        Test the start method with an EOF error.
+        Test the start method with an EOF error — exits cleanly.
         """
         self.mock_readline_instance.readline.side_effect = [EOFError]
-        with patch("logging.info") as mock_output:
-            self.console.start()
-            mock_output.assert_called_with("Exit")
+        self.console.start()  # should return without raising
 
     def test_completer(self) -> None:
         """

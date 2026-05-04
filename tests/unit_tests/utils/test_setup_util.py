@@ -30,7 +30,7 @@ class TestSetupUtil(unittest.TestCase):
         mock_get_key_dict.return_value = self.config_handler
         config = self.config_handler
         create_handler(config)
-        mock_db_query_handler.assert_called_once_with(mock_get_key_dict.return_value)
+        mock_db_query_handler.assert_called_once_with(mock_get_key_dict.return_value, debug=False)
 
     @patch("datapiece.scripts.utils.setup.get_key_dict")
     @patch("datapiece.scripts.utils.setup.Console")

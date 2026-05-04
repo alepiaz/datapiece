@@ -1,12 +1,12 @@
 {
-    "console":{
+    "console": {
+        "session_path": "session.json",
+        "history_path": ".datapiece_history",
+        "aliases": {}
     },
-    "handler":{
-        "mode": "test",
+    "handler": {
+        "mode": "production",
         "schema": "sql/schema.sql",
-        "db": "db/one_piece.db",
-        "commands": {
-            "exclude_list": ["__init__", "get_command_names", "_is_valid_command"]
-        }
+        "db": "db/one_piece.db"
     }
 }

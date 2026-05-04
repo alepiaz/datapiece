@@ -106,7 +106,9 @@ class TestDBQueryHandler(unittest.TestCase):
         """
         Test the _load_commands_from_schema method when the schema file does not exist.
         """
-        self._test_load_commands_from_schema(False, [])
+        with patch("builtins.open", side_effect=FileNotFoundError), patch("logging.error"):
+            with self.assertRaises(RuntimeError):
+                self.handler._load_commands_from_schema()
 
     @patch.object(DBQueryHandler, "execute_query")
     def test_execute_sql_commands_list(self, mock_execute_query) -> None:

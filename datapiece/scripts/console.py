@@ -16,7 +16,37 @@ import logging
 import os
 from typing import Optional
 
-from pyreadline3 import Readline  # type: ignore
+try:
+    from pyreadline3 import Readline  # type: ignore
+except ImportError:  # pragma: no cover
+    import readline as _rl  # pylint: disable=import-outside-toplevel
+
+    class Readline:  # type: ignore  # pylint: disable=too-few-public-methods
+        """Thin wrapper around the stdlib readline module for non-Windows platforms."""
+
+        def parse_and_bind(self, s: str) -> None:
+            """Bind a readline key sequence."""
+            _rl.parse_and_bind(s)  # type: ignore[attr-defined]
+
+        def set_completer(self, fn) -> None:
+            """Set the completer function."""
+            _rl.set_completer(fn)  # type: ignore[attr-defined]
+
+        def read_history_file(self, path: str) -> None:
+            """Load history from a file."""
+            _rl.read_history_file(path)  # type: ignore[attr-defined]
+
+        def write_history_file(self, path: str) -> None:
+            """Save history to a file."""
+            _rl.write_history_file(path)  # type: ignore[attr-defined]
+
+        def readline(self, prompt: str = "") -> str:
+            """Read a line of input with a prompt."""
+            return input(prompt)
+
+        def get_line_buffer(self) -> str:
+            """Return the current line buffer."""
+            return _rl.get_line_buffer()  # type: ignore[attr-defined]
 
 from datapiece.scripts.commands import Commands, COMPLETION_MAP
 from datapiece.scripts.db_query_handler import DBQueryHandler

@@ -81,6 +81,18 @@ class TestFiles(unittest.TestCase):
         mock_dirname.return_value = "dummy_dir"
         self.assertTrue(is_existing_file_in_writeable_directory("dummy_path"))
 
+    @patch("os.path.exists", side_effect=OSError("disk error"))
+    def test_is_path_existent_oserror(self, _mock) -> None:
+        self.assertFalse(is_path_existent("bad_path"))
+
+    @patch("os.access", side_effect=OSError("disk error"))
+    def test_is_path_readable_oserror(self, _mock) -> None:
+        self.assertFalse(is_path_readable("bad_path"))
+
+    @patch("os.access", side_effect=OSError("disk error"))
+    def test_is_path_writeable_oserror(self, _mock) -> None:
+        self.assertFalse(is_path_writeable("bad_path"))
+
 
 if __name__ == "__main__":
     unittest.main()

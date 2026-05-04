@@ -154,5 +154,71 @@ class TestUnknownCommand(unittest.TestCase):
         self.assertIn("Unknown command", output)
 
 
+class TestPrintHelp(unittest.TestCase):
+    """Tests for Console._print_help()."""
+
+    def setUp(self):
+        self.console, _ = _make_console()
+
+    def test_print_help_runs_without_error(self):
+        with patch("builtins.print"):
+            self.console._print_help()
+
+    def test_print_help_includes_key_commands(self):
+        with patch("builtins.print") as mock_print:
+            self.console._print_help()
+        output = " ".join(str(c) for c in mock_print.call_args_list)
+        self.assertIn("start_saga", output)
+        self.assertIn("status", output)
+        self.assertIn("undo", output)
+
+
+class TestRunMetaCommand(unittest.TestCase):
+    """Tests for the 'run' meta-command in _execute_line."""
+
+    def setUp(self):
+        self.console, _ = _make_console()
+
+    def test_run_no_args_prints_usage(self):
+        with patch("builtins.print") as mock_print:
+            result = self.console._execute_line("run")
+        self.assertTrue(result)
+        mock_print.assert_called_once_with("Usage: run <file>")
+
+    def test_help_meta_command(self):
+        with patch.object(self.console, "_print_help") as mock_help:
+            self.console._execute_line("help")
+        mock_help.assert_called_once()
+
+
+class TestStartBanners(unittest.TestCase):
+    """Tests for debug and session-resume banners shown by Console.start()."""
+
+    def _start_console(self, debug=False, prompt_label=""):
+        handler = Mock(spec=DBQueryHandler)
+        handler.conn = Mock()
+        config = {"commands": {}}
+        with patch("datapiece.scripts.console.Session") as mock_session_cls, \
+             patch("datapiece.scripts.console.Readline") as mock_readline_cls:
+            mock_session = mock_session_cls.return_value
+            mock_session.prompt_label.return_value = prompt_label
+            mock_rl = mock_readline_cls.return_value
+            mock_rl.readline.side_effect = ["exit"]
+            console = Console(handler, config, debug=debug)
+            with patch("builtins.print") as mock_print:
+                console.start()
+        return mock_print
+
+    def test_debug_banner_shown(self):
+        mock_print = self._start_console(debug=True)
+        output = " ".join(str(c) for c in mock_print.call_args_list)
+        self.assertIn("DEBUG MODE", output)
+
+    def test_resume_banner_shown_when_session_has_label(self):
+        mock_print = self._start_console(prompt_label="V1 ")
+        output = " ".join(str(c) for c in mock_print.call_args_list)
+        self.assertIn("Resuming session", output)
+
+
 if __name__ == "__main__":
     unittest.main()

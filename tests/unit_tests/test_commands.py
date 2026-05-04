@@ -78,16 +78,18 @@ class TestAddSaga(unittest.TestCase):
         )
 
     def test_add_saga_missing_args(self):
-        """add_saga prints usage when fewer than two arguments are provided."""
+        """add_saga prints usage when no arguments are provided."""
         with patch("builtins.print") as mock_print:
-            self.commands.add_saga("East Blue")
-        mock_print.assert_called_once_with("Usage: add_saga <name> <order>")
+            self.commands.add_saga()
+        mock_print.assert_called_once_with("Usage: add_saga <name> [order]")
 
     def test_add_saga_non_integer_order(self):
-        """add_saga prints an error when order is not an integer."""
-        with patch("builtins.print") as mock_print:
+        """add_saga treats a non-integer last token as part of the saga name."""
+        self.handler.execute_insert.return_value = 1
+        with patch("builtins.print"):
             self.commands.add_saga("East Blue", "abc")
-        mock_print.assert_called_once_with("Error: <order> must be an integer.")
+        call_params = self.handler.execute_insert.call_args[1]["params"]
+        self.assertEqual(call_params[0], "East Blue abc")
 
     def test_add_saga_multiword_name(self):
         """add_saga joins all tokens except the last as the name."""
@@ -119,16 +121,20 @@ class TestAddArc(unittest.TestCase):
         mock_print.assert_called_once_with("Arc 'Romance Dawn' added  [ID 1].")
 
     def test_add_arc_missing_args(self):
-        """add_arc prints usage when fewer than three arguments are provided."""
+        """add_arc prints usage when fewer than two arguments are provided."""
         with patch("builtins.print") as mock_print:
-            self.commands.add_arc("1", "Romance Dawn")
-        mock_print.assert_called_once_with("Usage: add_arc <saga_id> <name> <order>")
+            self.commands.add_arc("1")
+        mock_print.assert_called_once_with("Usage: add_arc <saga_ref> <name> [order]")
 
     def test_add_arc_invalid_saga_id(self):
-        """add_arc prints an error when saga_id or order is not an integer."""
+        """add_arc prints an error when the saga reference cannot be resolved."""
+        self.handler.fetch_query.return_value = []  # name lookup finds nothing
         with patch("builtins.print") as mock_print:
             self.commands.add_arc("x", "Romance Dawn", "1")
-        mock_print.assert_called_once_with("Error: <saga_id> and <order> must be integers.")
+        mock_print.assert_called_once_with(
+            "Cannot find saga 'x'. Use an integer ID or exact saga name."
+        )
+        self.handler.execute_insert.assert_not_called()
 
     def test_add_arc_saga_not_found(self):
         """add_arc warns and skips insert when the saga does not exist."""
@@ -279,6 +285,9 @@ class TestStartChapter(unittest.TestCase):
         self.session.get.side_effect = {
             "volume": 1, "arc_id": 3, "chapter": None, "page": None
         }.get
+        # First fetch: arc name lookup returns nothing (so "Some Chapter Name" is not an arc ref)
+        # Second fetch: arc exists check returns a row (arc_id=3 is valid)
+        self.handler.fetch_query.side_effect = [[], [(1,)]]
         self.commands.start_chapter("10", "Some Chapter Name")
         self.handler.execute_query.assert_called_once_with(
             "INSERT INTO Chapters (ChapterID, ChapterNumber, VolumeNumber, "

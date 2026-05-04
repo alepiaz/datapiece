@@ -54,6 +54,18 @@ class TestConfig(unittest.TestCase):
         result = get_key_list(self.sample_dict, "list")
         self.assertEqual(result, ["value3", "value4"])
 
+    def test_load_config_file_not_found_raises_system_exit(self):
+        with patch("builtins.open", side_effect=FileNotFoundError), \
+             patch("builtins.print"):
+            with self.assertRaises(SystemExit):
+                load_config("missing.json")
+
+    def test_load_config_invalid_json_raises_system_exit(self):
+        with patch("builtins.open", new_callable=mock_open, read_data="not valid json"), \
+             patch("builtins.print"):
+            with self.assertRaises(SystemExit):
+                load_config("bad.json")
+
 
 if __name__ == "__main__":
     unittest.main()
