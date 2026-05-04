@@ -220,5 +220,140 @@ class TestStartBanners(unittest.TestCase):
         self.assertIn("Resuming session", output)
 
 
+class TestStartHistoryErrors(unittest.TestCase):
+    def _start_with(self, read_side_effect=None, write_side_effect=None):
+        handler = Mock(spec=DBQueryHandler)
+        handler.conn = Mock()
+        config = {"commands": {}}
+        with patch("datapiece.scripts.console.Session") as mock_session_cls, \
+             patch("datapiece.scripts.console.Readline") as mock_readline_cls:
+            mock_session = mock_session_cls.return_value
+            mock_session.prompt_label.return_value = ""
+            mock_rl = mock_readline_cls.return_value
+            mock_rl.readline.side_effect = ["exit"]
+            if read_side_effect is not None:
+                mock_rl.read_history_file.side_effect = read_side_effect
+            if write_side_effect is not None:
+                mock_rl.write_history_file.side_effect = write_side_effect
+            console = Console(handler, config)
+            with patch("os.path.isfile", return_value=True), \
+                 patch("builtins.print") as mock_print:
+                console.start()
+        return mock_rl, mock_print
+
+    def test_read_history_oserror_does_not_raise(self):
+        mock_rl, _ = self._start_with(read_side_effect=OSError("no file"))
+        mock_rl.write_history_file.assert_called_once()
+
+    def test_write_history_oserror_prints_warning(self):
+        _, mock_print = self._start_with(write_side_effect=OSError("disk full"))
+        output = " ".join(str(c) for c in mock_print.call_args_list)
+        self.assertIn("history", output.lower())
+
+
+class TestRunTutorial(unittest.TestCase):
+    def setUp(self):
+        self.console, _ = _make_console()
+
+    def test_tutorial_intro_step_no_crash(self):
+        with patch("datapiece.scripts.console.Readline") as mock_rl_cls, \
+             patch("datapiece.scripts.console._TUTORIAL_STEPS", [("Welcome", "")]):
+            mock_rl_cls.return_value.readline.return_value = ""
+            with patch.object(self.console, "start"), patch("builtins.print"):
+                self.console.run_tutorial()
+
+    def test_tutorial_wrong_then_correct_command(self):
+        with patch("datapiece.scripts.console.Readline") as mock_rl_cls, \
+             patch("datapiece.scripts.console._TUTORIAL_STEPS", [("Type status", "status")]):
+            mock_rl_cls.return_value.readline.side_effect = ["wrong", "status"]
+            with patch.object(self.console, "_execute_line") as mock_exec, \
+                 patch.object(self.console, "start"), \
+                 patch("builtins.print") as mock_print:
+                self.console.run_tutorial()
+        mock_exec.assert_called_once_with("status")
+        output = " ".join(str(c) for c in mock_print.call_args_list)
+        self.assertIn("Not quite", output)
+
+    def test_tutorial_alias_accepted(self):
+        with patch("datapiece.scripts.console.Readline") as mock_rl_cls, \
+             patch("datapiece.scripts.console._TUTORIAL_STEPS",
+                   [("Type start_volume 1", "start_volume 1")]):
+            mock_rl_cls.return_value.readline.side_effect = ["sv 1"]
+            with patch.object(self.console, "_execute_line") as mock_exec, \
+                 patch.object(self.console, "start"), \
+                 patch("builtins.print") as mock_print:
+                self.console.run_tutorial()
+        mock_exec.assert_called_once_with("sv 1")
+        output = " ".join(str(c) for c in mock_print.call_args_list)
+        self.assertNotIn("Not quite", output)
+
+    def test_tutorial_keyboard_interrupt_exits_without_start(self):
+        with patch("datapiece.scripts.console.Readline") as mock_rl_cls, \
+             patch("datapiece.scripts.console._TUTORIAL_STEPS", [("Type status", "status")]):
+            mock_rl_cls.return_value.readline.side_effect = KeyboardInterrupt
+            with patch.object(self.console, "start") as mock_start, \
+                 patch("builtins.print"):
+                self.console.run_tutorial()
+        mock_start.assert_not_called()
+
+    def test_tutorial_completes_and_calls_start(self):
+        with patch("datapiece.scripts.console.Readline") as mock_rl_cls, \
+             patch("datapiece.scripts.console._TUTORIAL_STEPS",
+                   [("Intro", ""), ("Outro", "")]):
+            mock_rl_cls.return_value.readline.return_value = ""
+            with patch.object(self.console, "start") as mock_start, \
+                 patch("builtins.print"):
+                self.console.run_tutorial()
+        mock_start.assert_called_once()
+
+
+class TestBuildCompletions(unittest.TestCase):
+    def setUp(self):
+        self.console, self.handler = _make_console()
+        self.mock_rl = Mock()
+        self.console._readline = self.mock_rl
+
+    def test_completer_returns_none_on_exception(self):
+        with patch.object(self.console, "_build_completions", side_effect=RuntimeError("boom")):
+            result = self.console.completer("", 0)
+        self.assertIsNone(result)
+
+    def test_build_completions_get_line_buffer_exception(self):
+        self.mock_rl.get_line_buffer.side_effect = RuntimeError("no buffer")
+        result = self.console._build_completions("st")
+        self.assertIsInstance(result, list)
+        self.assertTrue(all(c.startswith("st") for c in result))
+
+    def test_build_completions_argument_no_spec(self):
+        self.mock_rl.get_line_buffer.return_value = "list_sagas "
+        result = self.console._build_completions("")
+        self.assertEqual(result, [])
+
+    def test_build_completions_static_list_spec(self):
+        # "find" has {0: []} in COMPLETION_MAP — a static (empty) list
+        self.mock_rl.get_line_buffer.return_value = "find "
+        result = self.console._build_completions("")
+        self.assertIsInstance(result, list)
+
+    def test_build_completions_dynamic_spec_returns_rows(self):
+        # start_chapter arg position 1 → dynamic SQL for arcs
+        self.mock_rl.get_line_buffer.return_value = "start_chapter 1 "
+        self.handler.fetch_query.return_value = [(1, "East Blue")]
+        result = self.console._build_completions("")
+        self.assertIn("1:East_Blue", result)
+
+    def test_build_completions_dynamic_spec_none_rows(self):
+        self.mock_rl.get_line_buffer.return_value = "start_chapter 1 "
+        self.handler.fetch_query.return_value = None
+        result = self.console._build_completions("")
+        self.assertEqual(result, [])
+
+    def test_execute_line_run_with_args_calls_run_file(self):
+        with patch.object(self.console, "_run_file") as mock_run_file:
+            result = self.console._execute_line("run somefile.txt")
+        mock_run_file.assert_called_once_with("somefile.txt")
+        self.assertTrue(result)
+
+
 if __name__ == "__main__":
     unittest.main()
