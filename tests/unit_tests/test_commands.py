@@ -167,7 +167,7 @@ class TestStartVolume(unittest.TestCase):
     def test_start_volume_creates_new_volume(self):
         """start_volume inserts and activates a new volume."""
         self.handler.execute_query.return_value = True
-        with patch("builtins.print"):
+        with patch("builtins.input", return_value=""), patch("builtins.print"):
             self.commands.start_volume("1")
         self.handler.execute_query.assert_called_once_with(
             "INSERT INTO Volumes (VolumeNumber) VALUES (?)", params=(1,)
@@ -175,13 +175,15 @@ class TestStartVolume(unittest.TestCase):
         self.session.set.assert_called_once_with(volume=1, chapter=None, page=None, panel_id=None)
 
     def test_start_volume_with_release_date(self):
-        """start_volume passes release_date when provided."""
+        """start_volume stores the release date entered interactively."""
         self.handler.execute_query.return_value = True
-        self.commands.start_volume("1", "1997-12-24")
-        self.handler.execute_query.assert_called_once_with(
-            "INSERT INTO Volumes (VolumeNumber, ReleaseDate) VALUES (?, ?)",
-            params=(1, "1997-12-24"),
-        )
+        with patch("builtins.input", return_value="1997-12-24"), patch("builtins.print"):
+            self.commands.start_volume("1")
+        calls = self.handler.execute_query.call_args_list
+        self.assertEqual(len(calls), 2)
+        self.assertIn("INSERT INTO Volumes", calls[0][0][0])
+        self.assertIn("UPDATE Volumes SET ReleaseDate", calls[1][0][0])
+        self.assertEqual(calls[1][1]["params"], ("1997-12-24", 1))
 
     def test_start_volume_already_exists_skips_insert(self):
         """start_volume skips the INSERT when the volume already exists."""
@@ -198,21 +200,24 @@ class TestStartVolume(unittest.TestCase):
         mock_print.assert_called_once_with("Error: <number> must be an integer.")
         self.session.set.assert_not_called()
 
-    def test_start_volume_invalid_date_format(self):
-        """start_volume prints an error when date is not in YYYY-MM-DD format."""
-        with patch("builtins.print") as mock_print:
-            self.commands.start_volume("1", "24-12-1997")
-        mock_print.assert_called_once_with(
-            "Error: release_date must be in YYYY-MM-DD format."
+    def test_start_volume_invalid_date_from_prompt(self):
+        """start_volume warns and skips date when the prompted value is not YYYY-MM-DD."""
+        self.handler.execute_query.return_value = True
+        with patch("builtins.input", return_value="24-12-1997"), \
+             patch("builtins.print") as mock_print:
+            self.commands.start_volume("1")
+        output = " ".join(str(c) for c in mock_print.call_args_list)
+        self.assertIn("Invalid date format", output)
+        self.handler.execute_query.assert_called_once_with(
+            "INSERT INTO Volumes (VolumeNumber) VALUES (?)", params=(1,)
         )
-        self.session.set.assert_not_called()
 
     def test_start_volume_context_switch_warning(self):
         """start_volume prints a warning when switching from a different active volume."""
         self.session.get.side_effect = {"volume": 1, "chapter": 5}.get
         self.handler.fetch_query.return_value = []
         self.handler.execute_query.return_value = True
-        with patch("builtins.print") as mock_print:
+        with patch("builtins.input", return_value=""), patch("builtins.print") as mock_print:
             self.commands.start_volume("2")
         calls = [str(c) for c in mock_print.call_args_list]
         self.assertTrue(any("Warning" in c for c in calls))
@@ -260,8 +265,9 @@ class TestStartChapter(unittest.TestCase):
         self.handler.execute_query.assert_not_called()
 
     def test_start_chapter_inserts_minimal(self):
-        """start_chapter inserts a chapter with only required fields."""
-        self.commands.start_chapter("1", "1")
+        """start_chapter inserts a chapter with only required fields, skipping all prompts."""
+        with patch("builtins.input", return_value=""), patch("builtins.print"):
+            self.commands.start_chapter("1", "1")
         self.handler.execute_query.assert_called_once_with(
             "INSERT INTO Chapters (ChapterID, ChapterNumber, VolumeNumber, "
             "ArcID, ChapterName, PublicationDate, PageCount) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -272,27 +278,29 @@ class TestStartChapter(unittest.TestCase):
         )
 
     def test_start_chapter_with_all_metadata(self):
-        """start_chapter parses name, pub_date, and page_count from trailing tokens."""
-        self.commands.start_chapter("5", "2", "The", "Truth", "About", "Nami", "1998-03-10", "19")
-        self.handler.execute_query.assert_called_once_with(
-            "INSERT INTO Chapters (ChapterID, ChapterNumber, VolumeNumber, "
-            "ArcID, ChapterName, PublicationDate, PageCount) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            params=(5, 5, 1, 2, "The Truth About Nami", "1998-03-10", 19),
-        )
+        """start_chapter saves name, pub_date, and page_count from interactive prompts."""
+        with patch("builtins.input") as mock_input, patch("builtins.print"):
+            mock_input.side_effect = ["The Truth About Nami", "1998-03-10", "19"]
+            self.commands.start_chapter("5", "2")
+        calls = self.handler.execute_query.call_args_list
+        self.assertEqual(len(calls), 2)
+        self.assertIn("INSERT INTO Chapters", calls[0][0][0])
+        self.assertEqual(calls[0][1]["params"][:4], (5, 5, 1, 2))
+        self.assertIn("UPDATE Chapters", calls[1][0][0])
+        self.assertEqual(calls[1][1]["params"], ("The Truth About Nami", "1998-03-10", 19, 5))
 
     def test_start_chapter_reuses_session_arc(self):
         """start_chapter uses the arc_id from the session when not explicitly provided."""
         self.session.get.side_effect = {
             "volume": 1, "arc_id": 3, "chapter": None, "page": None
         }.get
-        # First fetch: arc name lookup returns nothing (so "Some Chapter Name" is not an arc ref)
-        # Second fetch: arc exists check returns a row (arc_id=3 is valid)
-        self.handler.fetch_query.side_effect = [[], [(1,)]]
-        self.commands.start_chapter("10", "Some Chapter Name")
+        self.handler.fetch_query.return_value = [(1,)]  # arc exists
+        with patch("builtins.input", return_value=""), patch("builtins.print"):
+            self.commands.start_chapter("10")
         self.handler.execute_query.assert_called_once_with(
             "INSERT INTO Chapters (ChapterID, ChapterNumber, VolumeNumber, "
             "ArcID, ChapterName, PublicationDate, PageCount) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            params=(10, 10, 1, 3, "Some Chapter Name", None, None),
+            params=(10, 10, 1, 3, None, None, None),
         )
 
 

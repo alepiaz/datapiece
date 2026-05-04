@@ -103,16 +103,20 @@ _TUTORIAL_STEPS: list[tuple[str, str]] = [
     (
         "Step 3 — Open a Volume.\n"
         "start_volume sets the active volume context for all following chapters.\n"
-        "Syntax:  start_volume <number> [release_date]\n"
-        "Type:    start_volume 1 1997-12-24",
-        "start_volume 1 1997-12-24",
+        "After adding the volume you will be prompted for an optional release date "
+        "— press Enter to skip.\n"
+        "Syntax:  start_volume <number>\n"
+        "Type:    start_volume 1",
+        "start_volume 1",
     ),
     (
         "Step 4 — Add a Chapter.\n"
         "The session already knows which arc and volume you are in.\n"
-        "Syntax:  start_chapter <number> [name] [pub_date] [page_count]\n"
-        "Type:    start_chapter 1 Romance Dawn 1999-07-22 53",
-        "start_chapter 1 Romance Dawn 1999-07-22 53",
+        "After adding the chapter you will be prompted for name, publication date, "
+        "and page count — press Enter to skip any.\n"
+        "Syntax:  start_chapter <number> [arc_id]\n"
+        "Type:    start_chapter 1 1",
+        "start_chapter 1 1",
     ),
     (
         "Step 5 — Check your current session.\n"
@@ -128,9 +132,9 @@ _TUTORIAL_STEPS: list[tuple[str, str]] = [
     ),
     (
         "Step 7 — Add a second chapter (arc is remembered from the session).\n"
-        "Syntax:  start_chapter <number> [name] [pub_date] [page_count]\n"
-        "Type:    start_chapter 2 Luffy and the Pirate King 1999-08-05 54",
-        "start_chapter 2 Luffy and the Pirate King 1999-08-05 54",
+        "Syntax:  start_chapter <number>\n"
+        "Type:    start_chapter 2",
+        "start_chapter 2",
     ),
     (
         "Step 8 — Undo the last insert.\n"

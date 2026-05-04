@@ -329,21 +329,17 @@ class Commands:
     # Volumes
     # ------------------------------------------------------------------
 
-    def start_volume(self, number: str, release_date: Optional[str] = None) -> None:
-        """start_volume <number> [release_date]  —  open a volume as the active context.
+    def start_volume(self, number: str) -> None:
+        """start_volume <number>  —  open a volume as the active context.
 
         Creates the volume if it does not exist yet.  Resets chapter/page/panel context.
-        release_date format: YYYY-MM-DD
+        After inserting, prompts for an optional release date (YYYY-MM-DD).
         """
-        logger.debug("start_volume called: number=%s date=%s", number, release_date)
+        logger.debug("start_volume called: number=%s", number)
         try:
             vol = int(number)
         except ValueError:
             print(colors.error("Error: <number> must be an integer."))
-            return
-
-        if release_date is not None and not _DATE_RE.match(release_date):
-            print(colors.error("Error: release_date must be in YYYY-MM-DD format."))
             return
 
         current_vol = self.session.get("volume")
@@ -360,21 +356,29 @@ class Commands:
         if self._volume_exists(vol):
             print(colors.dim(f"Volume {vol} already in database."))
         else:
-            if release_date:
-                ok = self.handler.execute_query(
-                    "INSERT INTO Volumes (VolumeNumber, ReleaseDate) VALUES (?, ?)",
-                    params=(vol, release_date),
-                )
-            else:
-                ok = self.handler.execute_query(
-                    "INSERT INTO Volumes (VolumeNumber) VALUES (?)",
-                    params=(vol,),
-                )
+            ok = self.handler.execute_query(
+                "INSERT INTO Volumes (VolumeNumber) VALUES (?)",
+                params=(vol,),
+            )
             if not ok:
                 print(colors.error(f"Failed to create volume {vol}."))
                 return
             self.session.record_insert("Volumes", "VolumeNumber", vol, f"Volume {vol}", prev)
             print(colors.ok(f"Volume {vol} added to database."))
+            raw = input(
+                f"When did Volume {vol} first release? "
+                "(press enter if you want to keep the field empty)\n> "
+            ).strip()
+            if raw:
+                if not _DATE_RE.match(raw):
+                    print(colors.warn(
+                        "Invalid date format (expected YYYY-MM-DD) — date not saved."
+                    ))
+                else:
+                    self.handler.execute_query(
+                        "UPDATE Volumes SET ReleaseDate = ? WHERE VolumeNumber = ?",
+                        params=(raw, vol),
+                    )
 
         self.session.set(volume=vol, chapter=None, page=None, panel_id=None)
         print(colors.info(f"Now in Volume {vol}."))
@@ -399,25 +403,15 @@ class Commands:
     # Chapters
     # ------------------------------------------------------------------
 
-    def start_chapter(self, *args: str) -> None:  # pylint: disable=too-many-branches
-        """start_chapter <number> [arc_id] [name] [pub_date] [page_count]
+    def start_chapter(  # pylint: disable=too-many-branches
+        self, number: str, arc_id: Optional[str] = None
+    ) -> None:
+        """start_chapter <number> [arc_id]  —  add a chapter to the active volume.
 
-        Requires an active volume (run start_volume first).
-        arc_id: if the second token is an integer it is used as the arc and
-                remembered in the session; otherwise the session's last arc_id
-                is reused automatically.
-
-        Trailing detection (right to left):
-          - last token is purely numeric  → page_count
-          - last token matches YYYY-MM-DD → pub_date
-          - remaining tokens joined       → chapter name
+        arc_id: integer ID or arc name; uses the session's active arc if omitted.
+        After inserting, prompts for optional chapter name, publication date, and page count.
         """
-        logger.debug("start_chapter called with args=%s", args)
-        if not args:
-            print(colors.warn(
-                "Usage: start_chapter <number> [arc_id] [name] [pub_date] [page_count]"
-            ))
-            return
+        logger.debug("start_chapter called: number=%s arc_id=%s", number, arc_id)
 
         volume = self.session.get("volume")
         if volume is None:
@@ -425,45 +419,33 @@ class Commands:
             return
 
         try:
-            chapter_number = int(args[0])
+            chapter_number = int(number)
         except ValueError:
             print(colors.error("Error: <number> must be an integer."))
             return
 
-        rest = list(args[1:])
-
-        arc_id = None
-        if rest:
-            resolved = self._resolve_arc(rest[0])
-            if resolved is not None:
-                arc_id = resolved
-                rest = rest[1:]
-            else:
-                arc_id = self.session.get("arc_id")
+        if arc_id is not None:
+            resolved_arc = self._resolve_arc(arc_id)
+            if resolved_arc is None:
+                print(colors.error(
+                    f"No arc found for '{arc_id}'. Run list_arcs to see arc IDs."
+                ))
+                return
         else:
-            arc_id = self.session.get("arc_id")
+            resolved_arc = self.session.get("arc_id")
 
-        if arc_id is None:
+        if resolved_arc is None:
             print(colors.error(
-                "No arc set. Provide an arc_id: start_chapter <number> <arc_id> [name] ..."
+                "No arc set. Provide an arc_id: start_chapter <number> <arc_id>"
                 "\nRun list_arcs to see arc IDs."
             ))
             return
 
-        if not self._arc_exists(arc_id):
+        if not self._arc_exists(resolved_arc):
             print(colors.warn(
-                f"Warning: arc {arc_id} does not exist. Run list_arcs to check IDs."
+                f"Warning: arc {resolved_arc} does not exist. Run list_arcs to check IDs."
             ))
             return
-
-        page_count = None
-        pub_date = None
-        if rest and rest[-1].isdigit():
-            page_count = int(rest.pop())
-        if rest and _DATE_RE.match(rest[-1]):
-            pub_date = rest.pop()
-
-        name = " ".join(rest) if rest else None
 
         current_chap = self.session.get("chapter")
         if current_chap is not None and current_chap != chapter_number:
@@ -478,23 +460,55 @@ class Commands:
         ok = self.handler.execute_query(
             "INSERT INTO Chapters (ChapterID, ChapterNumber, VolumeNumber, "
             "ArcID, ChapterName, PublicationDate, PageCount) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            params=(chapter_number, chapter_number, volume, arc_id, name, pub_date, page_count),
+            params=(chapter_number, chapter_number, volume, resolved_arc, None, None, None),
         )
         if not ok:
             print(colors.error(
                 f"Failed to add chapter {chapter_number}. "
-                f"It may already exist — use list_chapters {arc_id} to check."
+                f"It may already exist — use list_chapters {resolved_arc} to check."
             ))
             return
 
-        label = f" '{name}'" if name else ""
         self.session.record_insert(
-            "Chapters", "ChapterID", chapter_number,
-            f"Chapter {chapter_number}{label}", prev
+            "Chapters", "ChapterID", chapter_number, f"Chapter {chapter_number}", prev
         )
-        self.session.set(arc_id=arc_id, chapter=chapter_number, page=None, panel_id=None)
-        print(colors.ok(f"Chapter {chapter_number}{label} added.") + " " +
+        self.session.set(arc_id=resolved_arc, chapter=chapter_number, page=None, panel_id=None)
+        print(colors.ok(f"Chapter {chapter_number} added.") + " " +
               colors.info(f"Now in Chapter {chapter_number}."))
+
+        # Prompt for optional metadata
+        name_raw = input(
+            f"What is the name of Chapter {chapter_number}? "
+            "(press enter if you want to keep the field empty)\n> "
+        ).strip()
+        name = name_raw or None
+
+        date_raw = input(
+            f"When was Chapter {chapter_number} published? "
+            "(YYYY-MM-DD, press enter if you want to keep the field empty)\n> "
+        ).strip()
+        if date_raw and not _DATE_RE.match(date_raw):
+            print(colors.warn("Invalid date format (expected YYYY-MM-DD) — date not saved."))
+            date_raw = ""
+        pub_date = date_raw or None
+
+        pages_raw = input(
+            f"How many pages does Chapter {chapter_number} have? "
+            "(press enter if you want to keep the field empty)\n> "
+        ).strip()
+        page_count = None
+        if pages_raw:
+            try:
+                page_count = int(pages_raw)
+            except ValueError:
+                print(colors.warn("Invalid page count — not saved."))
+
+        if name is not None or pub_date is not None or page_count is not None:
+            self.handler.execute_query(
+                "UPDATE Chapters SET ChapterName = ?, PublicationDate = ?, PageCount = ? "
+                "WHERE ChapterID = ?",
+                params=(name, pub_date, page_count, chapter_number),
+            )
 
     def list_chapters(self, arc_id: str) -> None:
         """list_chapters <arc_id>  —  list all chapters in an arc."""

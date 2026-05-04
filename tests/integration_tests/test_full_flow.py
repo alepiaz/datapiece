@@ -6,6 +6,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from datapiece.scripts.commands import Commands
 from datapiece.scripts.db_query_handler import DBQueryHandler
@@ -28,6 +29,9 @@ class TestFullFlow(unittest.TestCase):
         self.handler = DBQueryHandler(config)
         self.session = Session(self.session_path)
         self.commands = Commands(self.handler, {}, self.session)
+        self._input_patcher = patch("builtins.input", return_value="")
+        self._input_patcher.start()
+        self.addCleanup(self._input_patcher.stop)
 
     def tearDown(self) -> None:
         self.handler.close()
@@ -133,8 +137,9 @@ class TestFullFlow(unittest.TestCase):
         self.assertEqual(len(rows), 1)
 
     def test_start_volume_with_release_date(self) -> None:
-        """start_volume stores the release date when provided."""
-        self.commands.start_volume("1", "1997-12-24")
+        """start_volume stores the release date entered at the interactive prompt."""
+        with patch("builtins.input", return_value="1997-12-24"):
+            self.commands.start_volume("1")
         conn = sqlite3.connect(self.db_path)
         row = conn.execute("SELECT ReleaseDate FROM Volumes WHERE VolumeNumber = 1").fetchone()
         conn.close()
@@ -145,11 +150,13 @@ class TestFullFlow(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_start_chapter_inserts_row(self) -> None:
-        """start_chapter persists a chapter row with all provided metadata."""
+        """start_chapter persists a chapter row with metadata from interactive prompts."""
         self.commands.add_saga("East Blue", "1")
         self.commands.add_arc("1", "Romance Dawn", "1")
         self.commands.start_volume("1")
-        self.commands.start_chapter("1", "1", "Romance Dawn", "1997-07-22", "53")
+        with patch("builtins.input") as mock_input:
+            mock_input.side_effect = ["Romance Dawn", "1997-07-22", "53"]
+            self.commands.start_chapter("1", "1")
         conn = sqlite3.connect(self.db_path)
         row = conn.execute(
             "SELECT ChapterNumber, ChapterName, PublicationDate, PageCount "
@@ -190,7 +197,9 @@ class TestFullFlow(unittest.TestCase):
         self.commands.add_arc("1", "Romance Dawn", "1")
         self.commands.start_volume("1")
         for i in range(1, 4):
-            self.commands.start_chapter(str(i), "1", f"Chapter {i}")
+            with patch("builtins.input") as mock_input:
+                mock_input.side_effect = [f"Chapter {i}", "", ""]
+                self.commands.start_chapter(str(i), "1")
         rows = self.handler.fetch_query(
             "SELECT ChapterNumber FROM Chapters WHERE ArcID = 1 ORDER BY ChapterNumber"
         )
